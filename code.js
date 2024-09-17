@@ -185,31 +185,39 @@ function computeReplacement(node, mapping) {
             baseStyle: null,
             sections: [],
         };
+
         const errorLog = [
             "Cannot determine a base style for `" + content + "`",
             "Split into " + sections.length + " sections",
         ];
         const styles = [];
         const styleIds = new Set();
+
+        // Collect unique styles
         sections.forEach(({ from, to, style }) => {
             if (!styleIds.has(style.id)) {
                 styleIds.add(style.id);
                 styles.push(Object.assign({ humanId: from + "-" + to }, style));
             }
         });
+
+        // Attempt to find a valid base style
         for (let baseStyleCandidate of styles) {
             const prelude = "Style " + baseStyleCandidate.humanId + " is not base: ";
             let ok = true;
             result.sections.length = 0;
+
             for (let { from, to, style } of sections) {
-                if (style.id === baseStyleCandidate.id) {
-                    continue;
-                }
+                // If no style is present, use baseStyleCandidate
+                const currentStyle = style ? style : baseStyleCandidate;
+
                 const sectionContent = normalizeContent(node.characters.slice(from, to));
                 let sectionTranslation = sectionContent;
+
                 if (sectionContent in mapping) {
                     sectionTranslation = mapping[sectionContent];
                 }
+
                 const index = result.translation.indexOf(sectionTranslation);
                 if (index == -1) {
                     errorLog.push(prelude + "`" + sectionTranslation + "` not found within `" + result.translation + "`");
@@ -217,23 +225,27 @@ function computeReplacement(node, mapping) {
                     break;
                 }
                 if (result.translation.indexOf(sectionTranslation, index + 1) != -1) {
-                    errorLog.push(prelude + "found multiple occurrencies of `" + sectionTranslation + "` within `" + result.translation + "`");
+                    errorLog.push(prelude + "found multiple occurrences of `" + sectionTranslation + "` within `" + result.translation + "`");
                     ok = false;
                     break;
                 }
-                result.sections.push({ from: index, to: index + sectionTranslation.length, style });
+
+                result.sections.push({ from: index, to: index + sectionTranslation.length, style: currentStyle });
             }
+
             if (ok) {
                 result.baseStyle = baseStyleCandidate;
                 break;
             }
         }
+
         return result;
     });
 }
 function normalizeContent(content) {
-    return content.replace(/[\u000A\u00A0\u2028\u202F]/g, " ").replace(/ +/g, " ");
+  return content.replace(/[\u000A\u00A0\u2028\u202F]/g, " ").replace(/ +/g, " ");
 }
+
 function replaceText(replacement) {
     return __awaiter(this, void 0, void 0, function* () {
         yield loadFontsForReplacement(replacement);
@@ -249,8 +261,14 @@ function replaceText(replacement) {
 }
 function loadFontsForReplacement(replacement) {
     return __awaiter(this, void 0, void 0, function* () {
-        yield figma.loadFontAsync(replacement.baseStyle.fontName);
-        yield Promise.all(replacement.sections.map(({ style }) => figma.loadFontAsync(style.fontName)));
+        if (replacement.baseStyle && replacement.baseStyle.fontName) {
+          yield figma.loadFontAsync(replacement.baseStyle.fontName);
+          yield Promise.all(replacement.sections.map(({ style }) => figma.loadFontAsync(style.fontName)));
+        } else {
+          yield figma.loadFontAsync({ family: "Poppins", style: "SemiBold" });
+          yield Promise.all(replacement.sections.map(({ style }) => figma.loadFontAsync({ family: "Poppins", style: "SemiBold" })));
+        }
+      
     });
 }
 // Font substitution
@@ -336,7 +354,7 @@ function getSectionStyle(node, from, to) {
     }
     const fontName = node.getRangeFontName(from, to);
     if (fontName === figma.mixed) {
-        return figma.mixed;
+      return figma.mixed;
     }
     const fontSize = node.getRangeFontSize(from, to);
     if (fontSize === figma.mixed) {
@@ -428,16 +446,15 @@ figma.ui.onmessage = (message) => __awaiter(this, void 0, void 0, function* () {
             figma.notify("Done");
         }))
             .catch((reason) => {
-            if ("error" in reason) {
-                figma.notify("Translation failed: " + reason.error);
-                if ("failures" in reason) {
-                    figma.ui.postMessage({ type: "translation-failures", failures: reason.failures });
+              if(typeof reason === 'string') {
+                figma.notify(reason.toString())
+              } else {
+                figma.notify("Translation failed: " + reason);
+                if (Object.values(reason).length > 0) {
+                  figma.ui.postMessage({ type: "translation-failures", failures: reason.failures });
                 }
-            }
-            else {
-                figma.notify(reason.toString());
-            }
-            figma.ui.postMessage({ type: "ready" });
+              }
+              figma.ui.postMessage({ type: "ready" });
         });
     }
     else if (message.type === "copy") {
@@ -447,16 +464,17 @@ figma.ui.onmessage = (message) => __awaiter(this, void 0, void 0, function* () {
             figma.notify("Done");
         }))
             .catch((reason) => {
-            if ("error" in reason) {
-                figma.notify("Translation failed: " + reason.error);
-                if ("failures" in reason) {
+              
+              if(typeof reason === 'string') {
+                figma.notify(reason.toString())
+              } else {
+                figma.notify("Translation failed: " + reason);
+                console.log(reason)
+                if (Object.values(reason).length > 0) {
                     figma.ui.postMessage({ type: "translation-failures", failures: reason.failures });
                 }
-            }
-            else {
-                figma.notify(reason.toString());
-            }
-            figma.ui.postMessage({ type: "ready" });
+              }
+              figma.ui.postMessage({ type: "ready" });
         });
     }
     else if ((message.type = "save-content")) {
